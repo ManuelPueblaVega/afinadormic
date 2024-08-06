@@ -34,6 +34,12 @@
             padding: 10px 20px;
             cursor: pointer;
         }
+        #debug {
+            margin-top: 20px;
+            text-align: left;
+            font-size: 14px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -42,12 +48,14 @@
         <div id="note">-</div>
         <div id="frequency">- Hz</div>
         <button id="startButton">Iniciar Afinador</button>
+        <div id="debug"></div>
     </div>
 
     <script>
         const noteElement = document.getElementById('note');
         const frequencyElement = document.getElementById('frequency');
         const startButton = document.getElementById('startButton');
+        const debugElement = document.getElementById('debug');
 
         const A4 = 440;
         const SEMITONE = Math.pow(2, 1/12);
@@ -57,44 +65,62 @@
         let analyser;
         let microphone;
 
+        function log(message) {
+            console.log(message);
+            debugElement.innerHTML += message + '<br>';
+        }
+
         startButton.addEventListener('click', async () => {
             try {
+                log('Solicitando acceso al micrófono...');
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('Acceso al micrófono concedido.');
                 startAudioAnalysis(stream);
                 startButton.disabled = true;
             } catch (error) {
                 console.error('Error al acceder al micrófono:', error);
+                log('Error al acceder al micrófono: ' + error.message);
                 alert('No se pudo acceder al micrófono. Por favor, asegúrate de que tienes un micrófono conectado y has dado permiso para usarlo.');
             }
         });
 
         function startAudioAnalysis(stream) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            analyser = audioContext.createAnalyser();
-            microphone = audioContext.createMediaStreamSource(stream);
-            microphone.connect(analyser);
+            try {
+                log('Iniciando análisis de audio...');
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                microphone = audioContext.createMediaStreamSource(stream);
+                microphone.connect(analyser);
 
-            analyser.fftSize = 2048;
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Float32Array(bufferLength);
+                analyser.fftSize = 2048;
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Float32Array(bufferLength);
 
-            function analyze() {
-                analyser.getFloatTimeDomainData(dataArray);
-                const frequency = autoCorrelate(dataArray, audioContext.sampleRate);
-                
-                if (frequency !== -1) {
-                    const note = getNote(frequency);
-                    noteElement.textContent = note;
-                    frequencyElement.textContent = `${frequency.toFixed(2)} Hz`;
-                } else {
-                    noteElement.textContent = '-';
-                    frequencyElement.textContent = '- Hz';
+                log('Configuración de audio completada.');
+
+                function analyze() {
+                    analyser.getFloatTimeDomainData(dataArray);
+                    const frequency = autoCorrelate(dataArray, audioContext.sampleRate);
+                    
+                    if (frequency !== -1) {
+                        const note = getNote(frequency);
+                        noteElement.textContent = note;
+                        frequencyElement.textContent = `${frequency.toFixed(2)} Hz`;
+                        log(`Frecuencia detectada: ${frequency.toFixed(2)} Hz, Nota: ${note}`);
+                    } else {
+                        noteElement.textContent = '-';
+                        frequencyElement.textContent = '- Hz';
+                        log('No se detectó ninguna frecuencia clara.');
+                    }
+
+                    requestAnimationFrame(analyze);
                 }
 
-                requestAnimationFrame(analyze);
+                analyze();
+            } catch (error) {
+                console.error('Error al iniciar el análisis de audio:', error);
+                log('Error al iniciar el análisis de audio: ' + error.message);
             }
-
-            analyze();
         }
 
         function autoCorrelate(buffer, sampleRate) {
@@ -110,7 +136,10 @@
             }
             rms = Math.sqrt(rms / SIZE);
 
-            if (rms < 0.01) return -1;
+            if (rms < 0.01) {
+                log('Nivel de sonido demasiado bajo.');
+                return -1;
+            }
 
             for (let offset = 0; offset < SIZE; offset++) {
                 let correlation = 0;
