@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Afinador de Instrumentos de Cuerda</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        #note {
+            font-size: 48px;
+            margin: 20px 0;
+        }
+        #frequency {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        button {
+            font-size: 18px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Afinador de Instrumentos de Cuerda</h1>
+        <div id="note">-</div>
+        <div id="frequency">- Hz</div>
+        <button id="startButton">Iniciar Afinador</button>
+    </div>
+
+    <script>
+        const noteElement = document.getElementById('note');
+        const frequencyElement = document.getElementById('frequency');
+        const startButton = document.getElementById('startButton');
+
+        const A4 = 440;
+        const SEMITONE = Math.pow(2, 1/12);
+        const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+        let audioContext;
+        let analyser;
+        let microphone;
+
+        startButton.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                startAudioAnalysis(stream);
+                startButton.disabled = true;
+            } catch (error) {
+                console.error('Error al acceder al micrófono:', error);
+                alert('No se pudo acceder al micrófono. Por favor, asegúrate de que tienes un micrófono conectado y has dado permiso para usarlo.');
+            }
+        });
+
+        function startAudioAnalysis(stream) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            microphone = audioContext.createMediaStreamSource(stream);
+            microphone.connect(analyser);
+
+            analyser.fftSize = 2048;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Float32Array(bufferLength);
+
+            function analyze() {
+                analyser.getFloatTimeDomainData(dataArray);
+                const frequency = autoCorrelate(dataArray, audioContext.sampleRate);
+                
+                if (frequency !== -1) {
+                    const note = getNote(frequency);
+                    noteElement.textContent = note;
+                    frequencyElement.textContent = `${frequency.toFixed(2)} Hz`;
+                } else {
+                    noteElement.textContent = '-';
+                    frequencyElement.textContent = '- Hz';
+                }
+
+                requestAnimationFrame(analyze);
+            }
+
+            analyze();
+        }
+
+        function autoCorrelate(buffer, sampleRate) {
+            const SIZE = buffer.length;
+            let bestOffset = -1;
+            let bestCorrelation = 0;
+            let rms = 0;
+            let foundGoodCorrelation = false;
+
+            for (let i = 0; i < SIZE; i++) {
+                const val = buffer[i];
+                rms += val * val;
+            }
+            rms = Math.sqrt(rms / SIZE);
+
+            if (rms < 0.01) return -1;
+
+            for (let offset = 0; offset < SIZE; offset++) {
+                let correlation = 0;
+
+                for (let i = 0; i < SIZE - offset; i++) {
+                    correlation += buffer[i] * buffer[i + offset];
+                }
+
+                correlation = correlation / (SIZE - offset);
+
+                if (correlation > 0.9 && correlation > bestCorrelation) {
+                    foundGoodCorrelation = true;
+                    if (correlation > bestCorrelation) {
+                        bestCorrelation = correlation;
+                        bestOffset = offset;
+                    }
+                } else if (foundGoodCorrelation) {
+                    break;
+                }
+            }
+
+            if (bestCorrelation > 0.01) {
+                return sampleRate / bestOffset;
+            }
+            return -1;
+        }
+
+        function getNote(frequency) {
+            const noteNum = 12 * (Math.log(frequency / A4) / Math.log(2));
+            const noteIndex = Math.round(noteNum) + 69;
+            return NOTES[noteIndex % 12];
+        }
+    </script>
+</body>
+</html>
